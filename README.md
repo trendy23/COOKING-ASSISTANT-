@@ -22,9 +22,9 @@ No login, no payment system, it's all local. Freemium is the default when you op
 
 ## Who's doing what
 - Dexter - backend lead, database structure, the algorithm that matches recipes to ingredients, CRUD stuff
-- Tebong - Interactive Virtual Kitchen module, step-by-step walkthrough logic, handles the free/premium limit logic
+- - Tebong - Free/Premium account logic, redeem code handling, daily request limit and usage tracking
 - Ogechi - testing everything, making sure it works offline, handles the build
-- Trendy - requirements, the rules for matching/free-premium, seed data for recipes and ingredients
+- - Trendy - requirements, the rules for matching/free-premium, seed data for recipes and ingredients, plus the Interactive Virtual Kitchen module (text-to-speech, step-by-step playback, pause/wait-for-user functionality)
 
 ## Status
 Done, already built.
