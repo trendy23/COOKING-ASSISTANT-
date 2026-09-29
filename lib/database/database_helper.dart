@@ -54,4 +54,147 @@ class DatabaseHelper {
       version: 1,
     );
   }
+
+// CRUD Database Access//
+
+  static Future<void> insertIngredient(Database db, Map<String, dynamic> ingredient) async {
+  await db.insert('Ingredient', ingredient);
+}
+
+static Future<Map<String, dynamic>?> getIngredientById(Database db, String id) async {
+  final results = await db.query(
+    'Ingredient',
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+  if (results.isEmpty) return null;
+  return results.first;
+}
+
+static Future<int> deleteIngredient(Database db, String id) async {
+  return await db.delete(
+    'Ingredient',
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
+
+static Future<int> updateIngredient(Database db, String id, Map<String, dynamic> newValues) async {
+  return await db.update(
+    'Ingredient',
+    newValues,
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
+
+static Future<void> insertRecipe(Database db, Map<String, dynamic> recipe) async {
+  await db.insert ('Recipe', recipe);
+}
+
+static Future<Map<String, dynamic>?> getRecipeById(Database db, String id) async {
+  final results = await db.query(
+    'Recipe',
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+  if (results.isEmpty) return null;
+  return results.first;
+}
+
+static Future<int> deleteRecipe(Database db, String id) async {
+  return await db.delete(
+    'Recipe',
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
+
+static Future<int> updateRecipe(Database db, String id, Map<String, dynamic> newValues) async {
+  return await db.update(
+    'Recipe',
+    newValues,
+    where: 'id = ?',
+    whereArgs: [id],
+  );
+}
+
+static Future<void> insertProfile(Database db, Map<String, dynamic> profile) async {
+  await db.insert('Profile', profile);
+}
+
+static Future<Map<String, dynamic>?> getProfileById(Database db, String id) async {
+  final results = await db.query(
+    'Profile',
+     where: 'id = ?',
+     whereArgs: [id]);
+     if (results.isEmpty) return null;
+     
+     return results.first;
+}
+
+static Future<int> updateProfileTier(Database db, String id, String newTier) async {
+  return await db.update(
+    'Profile', 
+    {'tier': newTier} ,
+    where: 'id = ?' , 
+    whereArgs: [id]);
+
+}
+
+static Future<void> insertStep(Database db, Map<String, dynamic> step) async {
+  await db.insert('Step', step);
+}
+
+static Future<List<Map<String, dynamic>>> getStepsByRecipeId(Database db, String recipe_id,) async {
+  final results = await db.query(
+    'Step' ,
+    where: 'recipe_id = ?',
+    whereArgs: [recipe_id]
+  );
+  return results;
+}
+// Recommendation logic engine//
+
+static double calculateCompatibilityScore(Set<String> recipeIngredients, Set<String> userIngredients) {
+  if (recipeIngredients.isEmpty) return 0.0;
+  Set<String> overlap = recipeIngredients.intersection(userIngredients);
+  double score = overlap.length / recipeIngredients.length;
+  return score;
+}
+
+static bool matchesDietaryRestriction(String recipeDietaryTags, String? userRestriction) {
+  if (userRestriction == null || userRestriction.isEmpty) {
+    return true;
+  }
+  List<String> tags = recipeDietaryTags.split(',');
+  return tags.contains(userRestriction);
+}
+
+static List<Map<String, dynamic>> filterByDietaryRestriction(List<Map<String, dynamic>> allRecipes, String? userRestriction) {
+  List<Map<String, dynamic>> eligible = [];
+  for (var recipe in allRecipes) {
+    if (matchesDietaryRestriction(recipe['dietaryTags'], userRestriction)) {
+      eligible.add(recipe);
+    }
+  }
+  return eligible;
+}
+
+static List<Map<String, dynamic>> getRankedRecommendations(
+  List<Map<String, dynamic>> allRecipes,
+  Set<String> userIngredients,
+  String? userRestriction,
+) {
+  List<Map<String, dynamic>> eligible = filterByDietaryRestriction(allRecipes, userRestriction);
+
+  for (var recipe in eligible) {
+    Set<String> recipeIngredients = recipe['ingredientSet'];
+    recipe['score'] = calculateCompatibilityScore(recipeIngredients, userIngredients);
+  }
+
+  eligible.sort((a, b) => b['score'].compareTo(a['score']));
+
+  return eligible;
+}
 }
