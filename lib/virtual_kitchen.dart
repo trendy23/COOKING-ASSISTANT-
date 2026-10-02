@@ -83,11 +83,43 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
   bool _searching = false;
   List<KitchenRecipe> _recipes = [];
   List<KitchenRecipe> _visibleRecipes = [];
+  final Set<String> _selectedIngredients = {};
   final TextEditingController _searchController = TextEditingController();
   Timer? _searchDebounce;
   int _searchGeneration = 0;
 
   bool get _isPremium => _status.isPremium;
+  List<KitchenRecipe> get _displayRecipes {
+    if (_selectedIngredients.isEmpty) return _visibleRecipes;
+    final ranked = DatabaseHelper.getRankedRecommendations(
+      _visibleRecipes
+          .map((recipe) => {
+                'id': recipe.id,
+                'name': recipe.name,
+                'dietaryTags': '',
+                'ingredientSet': _recipeIngredients[recipe.id] ?? <String>{},
+              })
+          .toList(),
+      _selectedIngredients,
+      null,
+    );
+    final recipesById = {for (final recipe in _visibleRecipes) recipe.id: recipe};
+    return ranked
+        .where((row) => (row['score'] as double) > 0)
+        .map((row) => recipesById[row['id']]!)
+        .toList();
+  }
+
+  Map<String, Set<String>> get _recipeIngredients => {
+        for (final row in _allRecipeRows)
+          row['id'].toString(): (row['ingredientSet'] as Set<String>? ?? {}),
+      };
+  List<Map<String, dynamic>> _allRecipeRows = [];
+  List<String> get _availableIngredients => _allRecipeRows
+      .expand((row) => row['ingredientSet'] as Set<String>? ?? <String>{})
+      .toSet()
+      .toList()
+    ..sort();
 
   @override
   void initState() {
@@ -108,6 +140,7 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
     try {
       await DatabaseHelper.initDatabase();
       final rows = await DatabaseHelper.getRecipes();
+      _allRecipeRows = rows;
       final recipes = <KitchenRecipe>[];
       for (final row in rows) {
         recipes.add(await KitchenRecipe.fromDatabase(row));
@@ -187,8 +220,9 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final starters = _visibleRecipes.where((recipe) => recipe.isStarter);
-    final otherRecipes = _visibleRecipes.where((recipe) => !recipe.isStarter);
+    final displayRecipes = _displayRecipes;
+    final starters = displayRecipes.where((recipe) => recipe.isStarter);
+    final otherRecipes = displayRecipes.where((recipe) => !recipe.isStarter);
 
     return Scaffold(
       appBar: AppBar(
@@ -198,7 +232,9 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
             child: Padding(
               padding: const EdgeInsets.only(right: 4),
               child: Text(
-                _isPremium ? 'PREMIUM' : 'FREEMIUM',
+                _isPremium
+                    ? 'PREMIUM'
+                    : '${_status.recipesUsedToday}/${_status.dailyLimit} TODAY',
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
@@ -267,6 +303,48 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
                   ),
                 ),
               ),
+              const SizedBox(height: 12),
+              ExpansionTile(
+                key: const ValueKey('ingredient-picker'),
+                title: Text(
+                  _selectedIngredients.isEmpty
+                      ? 'Match recipes to your ingredients'
+                      : '${_selectedIngredients.length} ingredients selected',
+                ),
+                subtitle: const Text('Choose what you have on hand'),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final ingredient in _availableIngredients)
+                        FilterChip(
+                          label: Text(ingredient),
+                          selected: _selectedIngredients.contains(ingredient),
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedIngredients.add(ingredient);
+                              } else {
+                                _selectedIngredients.remove(ingredient);
+                              }
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  if (_selectedIngredients.isNotEmpty)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: () =>
+                            setState(_selectedIngredients.clear),
+                        child: const Text('Clear ingredients'),
+                      ),
+                    ),
+                ],
+              ),
               const SizedBox(height: 24),
               if (_loading)
                 const Padding(
@@ -278,13 +356,13 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
                   padding: EdgeInsets.all(20),
                   child: Center(child: CircularProgressIndicator()),
                 )
-              else if (_visibleRecipes.isEmpty)
+              else if (displayRecipes.isEmpty)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 36),
                   child: Column(
                     children: [
                       const Text(
-                        'No recipes found. Try another ingredient or dish name.',
+                        'No matching recipes found. Try different ingredients or clear the selection.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 12),
@@ -297,33 +375,39 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
                 )
               else ...[
                 Text(
-                  '${_visibleRecipes.length} ${_visibleRecipes.length == 1 ? 'recipe' : 'recipes'}',
+                  _selectedIngredients.isEmpty
+                      ? '${displayRecipes.length} ${displayRecipes.length == 1 ? 'recipe' : 'recipes'}'
+                      : '${displayRecipes.length} matching recipes, ranked by ingredient compatibility',
                   style: const TextStyle(
                     color: Color(0xFF666960),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (starters.isNotEmpty) ...[
+                if (_selectedIngredients.isNotEmpty) ...[
+                  const _SectionHeading('Best ingredient matches', 'MATCHED'),
+                  for (final recipe in displayRecipes)
+                    _RecipeTile(
+                      recipe: recipe,
+                      onTap: () => _open(recipe),
+                    ),
+                ] else if (starters.isNotEmpty) ...[
                   const _SectionHeading('Easy recipes', 'STARTER'),
                   for (final recipe in starters)
                     _RecipeTile(
                       recipe: recipe,
-                      onTap: () => _open(context, recipe),
+                      onTap: () => _open(recipe),
                     ),
                 ],
                 if (otherRecipes.isNotEmpty) ...[
-                  _SectionHeading(
-                    'More recipes',
-                    _isPremium ? 'UNLOCKED' : 'PREMIUM',
-                  ),
+                    _SectionHeading(
+                      'More recipes',
+                      _isPremium ? 'UNLIMITED' : '7 PER DAY',
+                    ),
                   for (final recipe in otherRecipes)
                     _RecipeTile(
-                      recipe: recipe,
-                      locked: !_isPremium,
-                      onTap: () => _isPremium
-                          ? _open(context, recipe)
-                          : _showPremiumLocked(context),
-                    ),
+                        recipe: recipe,
+                        onTap: () => _open(recipe),
+                      ),
                 ],
               ],
             ],
@@ -338,7 +422,7 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
       context: context,
       builder: (_) => const _RedeemCodeDialog(),
     );
-    if (code == null) return;
+    if (!mounted || code == null) return;
     final accepted = await _access.redeemCode(code);
     await _refreshStatus();
     if (!mounted) return;
@@ -353,31 +437,36 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
     );
   }
 
-  void _open(BuildContext context, KitchenRecipe recipe) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            VirtualKitchenCookingScreen(recipe: recipe, isPremium: _isPremium),
-      ),
-    );
-  }
-
-  void _showPremiumLocked(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Premium recipe'),
-        content: const Text(
-          'Interactive cooking for this dish is available with Premium.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
+  Future<void> _open(KitchenRecipe recipe) async {
+    late final bool allowed;
+    try {
+      allowed = await _access.consumeRecipe(recipe.id);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not record daily recipe usage: $error')),
+        );
+      }
+      return;
+    }
+    await _refreshStatus();
+    if (!mounted) return;
+    if (!allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'You have reached the 7-recipe daily limit. Redeem a Premium code for unlimited recipes.',
           ),
-        ],
+        ),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => VirtualKitchenCookingScreen(recipe: recipe),
       ),
     );
+    await _refreshStatus();
   }
 }
 
@@ -436,11 +525,9 @@ class VirtualKitchenCookingScreen extends StatefulWidget {
   const VirtualKitchenCookingScreen({
     super.key,
     required this.recipe,
-    this.isPremium = false,
   });
 
   final KitchenRecipe recipe;
-  final bool isPremium;
 
   @override
   State<VirtualKitchenCookingScreen> createState() =>
@@ -460,7 +547,8 @@ class _VirtualKitchenCookingScreenState
   bool _resumeSpeechAfterPause = false;
 
   KitchenStep get _step => widget.recipe.steps[_index];
-  bool get _lastStep => _index == widget.recipe.steps.length - 1;
+  bool get _lastStep =>
+      widget.recipe.steps.isEmpty || _index >= widget.recipe.steps.length - 1;
 
   @override
   void initState() {
@@ -480,16 +568,30 @@ class _VirtualKitchenCookingScreenState
   @override
   void dispose() {
     _timer?.cancel();
-    if (_speaking) unawaited(_tts.stop());
+    if (_speaking) {
+      unawaited(
+        _tts.stop().catchError((Object error) {
+          debugPrint('Could not stop recipe narration during disposal: $error');
+        }),
+      );
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.recipe.isStarter && !widget.isPremium) {
+    if (widget.recipe.steps.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Virtual Kitchen')),
-        body: const _LockedView(),
+        appBar: AppBar(title: Text(widget.recipe.name)),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Text(
+              'No cooking steps are saved for this recipe yet.',
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
       );
     }
     return Scaffold(
@@ -642,6 +744,11 @@ class _VirtualKitchenCookingScreenState
   }
 
   void _resetTimer() {
+    if (widget.recipe.steps.isEmpty) {
+      _remaining = 0;
+      _timerComplete = false;
+      return;
+    }
     _remaining = _step.timerSeconds ?? 0;
     _timerComplete = false;
   }
@@ -679,8 +786,20 @@ class _VirtualKitchenCookingScreenState
       setState(() => _paused = true);
       if (_resumeSpeechAfterPause) {
         try {
-          await _tts.pause();
-        } catch (_) {}
+          final paused = await _tts.pause();
+          if (paused != true && paused != 1) {
+            await _stopSpeech();
+            _resumeSpeechAfterPause = false;
+          }
+        } catch (error) {
+          await _stopSpeech();
+          _resumeSpeechAfterPause = false;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Narration could not pause: $error')),
+            );
+          }
+        }
       }
       return;
     }
@@ -700,12 +819,12 @@ class _VirtualKitchenCookingScreenState
       await _tts.setSpeechRate(0.45);
       if (mounted) setState(() => _speaking = true);
       await _tts.speak('${_step.title}. ${_step.instruction}');
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(() => _speaking = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Speech is not available on this device.'),
+          SnackBar(
+            content: Text('Speech is not available on this device: $error'),
           ),
         );
       }
@@ -715,8 +834,15 @@ class _VirtualKitchenCookingScreenState
   Future<void> _stopSpeech() async {
     try {
       await _tts.stop();
-    } catch (_) {}
-    if (mounted) setState(() => _speaking = false);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not stop narration: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _speaking = false);
+    }
   }
 
   void _previous() {
@@ -776,11 +902,9 @@ class _RecipeTile extends StatelessWidget {
   const _RecipeTile({
     required this.recipe,
     required this.onTap,
-    this.locked = false,
   });
   final KitchenRecipe recipe;
   final VoidCallback onTap;
-  final bool locked;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -817,15 +941,6 @@ class _RecipeTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (locked)
-                const Text(
-                  'PREMIUM',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF77796F),
-                  ),
-                ),
             ],
           ),
         ),
@@ -954,31 +1069,4 @@ class _TimerPanel extends StatelessWidget {
       ),
     );
   }
-}
-
-class _LockedView extends StatelessWidget {
-  const _LockedView();
-
-  @override
-  Widget build(BuildContext context) => const Center(
-    child: Padding(
-      padding: EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.lock_outline, size: 42, color: Color(0xFF234C3B)),
-          SizedBox(height: 16),
-          Text(
-            'Premium recipe',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Interactive cooking for this dish is available with Premium.',
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    ),
-  );
 }
