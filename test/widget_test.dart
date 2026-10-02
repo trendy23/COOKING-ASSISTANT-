@@ -1,30 +1,71 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
+import 'package:cooking_assistant/virtual_kitchen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:cooking_assistant/main.dart';
-
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('cooking flow waits for the user to continue', (tester) async {
+    const recipe = KitchenRecipe(
+      id: 'test-recipe',
+      name: 'Test Soup',
+      culture: 'Test',
+      minutes: 10,
+      isStarter: true,
+      color: Colors.green,
+      icon: Icons.soup_kitchen,
+      steps: [
+        KitchenStep('Prepare', 'Chop the vegetables.', Icons.content_cut),
+        KitchenStep('Cook', 'Simmer until tender.', Icons.soup_kitchen),
+      ],
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      const MaterialApp(home: VirtualKitchenCookingScreen(recipe: recipe)),
+    );
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    expect(find.text('Chop the vegetables.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 2));
+    expect(find.text('Chop the vegetables.'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Pause cooking'));
     await tester.pump();
+    expect(find.byKey(const ValueKey('pause-status')), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const ValueKey('next-step')))
+          .onPressed,
+      isNull,
+    );
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.tap(find.byTooltip('Resume cooking'));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('next-step')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Simmer until tender.'), findsOneWidget);
+  });
+
+  testWidgets('recipe with missing steps shows a safe empty state', (
+    tester,
+  ) async {
+    const recipe = KitchenRecipe(
+      id: 'empty-recipe',
+      name: 'Recipe without saved steps',
+      culture: 'Test',
+      minutes: 0,
+      isStarter: true,
+      color: Colors.green,
+      icon: Icons.restaurant,
+      steps: [],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(home: VirtualKitchenCookingScreen(recipe: recipe)),
+    );
+
+    expect(
+      find.text('No cooking steps are saved for this recipe yet.'),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 }
