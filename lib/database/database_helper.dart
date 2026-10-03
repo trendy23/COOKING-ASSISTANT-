@@ -1,13 +1,23 @@
-import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+
+import 'database_platform.dart'
+    if (dart.library.js_interop) 'database_platform_web.dart'
+    as database_platform;
 
 class DatabaseHelper {
   static const int maxDailyRecipes = 7;
   static Future<Database>? _databaseFuture;
 
   static Future<Database> initDatabase() async {
-    return _databaseFuture ??= openDatabase(
-      join(await getDatabasesPath(), 'cooking_assistant.db'),
+    return _databaseFuture ??= _openDatabase();
+  }
+
+  static Future<Database> _openDatabase() async {
+    final path = await database_platform.configureDatabasePlatform(
+      'cooking_assistant.db',
+    );
+    return openDatabase(
+      path,
       version: 2,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, version) async {
@@ -535,26 +545,29 @@ class DatabaseHelper {
     double minimumScore = 50,
   }) {
     final eligible = filterByDietaryRestriction(allRecipes, userRestriction);
-    final ranked = eligible.map((recipe) {
-      final ingredients = (recipe['ingredientSet'] as Set<String>? ?? {});
-      final score = calculateWeightedScore(
-        recipeIngredients: ingredients,
-        userIngredients: userIngredients,
-        recipePrepMinutes: (recipe['prepTimeMinutes'] as num?)?.toInt(),
-        userMinutes: userMinutes,
-        recipeCulture: recipe['cultureTag'] as String?,
-        userCulture: userCulture,
-        recipeEnergy: recipe['energyLevel'] as String?,
-        userEnergy: userEnergy,
-      );
-      return {...recipe, 'score': score};
-    }).where((recipe) {
-      // Only apply the 50+ cutoff once the user has actually entered
-      // ingredients — otherwise every recipe would score near 0 and
-      // the list would always come back empty before the user types.
-      if (userIngredients.isEmpty) return true;
-      return (recipe['score'] as double) >= minimumScore;
-    }).toList();
+    final ranked = eligible
+        .map((recipe) {
+          final ingredients = (recipe['ingredientSet'] as Set<String>? ?? {});
+          final score = calculateWeightedScore(
+            recipeIngredients: ingredients,
+            userIngredients: userIngredients,
+            recipePrepMinutes: (recipe['prepTimeMinutes'] as num?)?.toInt(),
+            userMinutes: userMinutes,
+            recipeCulture: recipe['cultureTag'] as String?,
+            userCulture: userCulture,
+            recipeEnergy: recipe['energyLevel'] as String?,
+            userEnergy: userEnergy,
+          );
+          return {...recipe, 'score': score};
+        })
+        .where((recipe) {
+          // Only apply the 50+ cutoff once the user has actually entered
+          // ingredients — otherwise every recipe would score near 0 and
+          // the list would always come back empty before the user types.
+          if (userIngredients.isEmpty) return true;
+          return (recipe['score'] as double) >= minimumScore;
+        })
+        .toList();
     ranked.sort(
       (first, second) =>
           (second['score'] as double).compareTo(first['score'] as double),

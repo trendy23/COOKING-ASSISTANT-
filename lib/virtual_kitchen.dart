@@ -7,12 +7,20 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 @immutable
 class KitchenStep {
-  const KitchenStep(this.title, this.instruction, this.icon, {this.timerSeconds, this.safetyTip});
+  const KitchenStep(
+    this.title,
+    this.instruction,
+    this.icon, {
+    this.timerSeconds,
+    this.safetyTip,
+    this.imageUrl,
+  });
   final String title;
   final String instruction;
   final IconData icon;
   final int? timerSeconds;
   final String? safetyTip;
+  final String? imageUrl;
 }
 
 @immutable
@@ -38,6 +46,10 @@ class KitchenRecipe {
         title.isEmpty ? 'Step ${row['stepOrder']}' : title,
         instruction,
         _iconForInstruction(instruction, fallback: _iconFor(id)),
+        imageUrl: switch (row['imageUrl']?.toString().trim()) {
+          final url? when url.isNotEmpty => url,
+          _ => null,
+        },
       );
     }).toList();
     return KitchenRecipe(
@@ -334,7 +346,7 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
               child: Text(
                 _isPremium
                     ? 'PREMIUM'
-                    : '${_status.recipesUsedToday}/${_status.dailyLimit} TODAY',
+                    : 'FREE PLAN',
                 style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
@@ -558,7 +570,7 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
                 if (otherRecipes.isNotEmpty) ...[
                     _SectionHeading(
                       'More recipes',
-                      _isPremium ? 'UNLIMITED' : '7 PER DAY',
+                    _isPremium ? 'UNLIMITED COOKING' : 'PREMIUM COOKING',
                     ),
                   for (final recipe in otherRecipes)
                     _RecipeTile(
@@ -595,17 +607,31 @@ class _VirtualKitchenHomePageState extends State<VirtualKitchenHomePage> {
   }
 
   Future<void> _open(KitchenRecipe recipe) async {
-    // FR8: Freemium only gets the Interactive Virtual Kitchen on starter
-    // recipes. Premium bypasses this entirely. This was previously missing
-    // — any Freemium user could open any recipe's full cooking screen as
-    // long as they were under the daily cap.
-    if (!_isPremium && !recipe.isStarter) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'The Interactive Virtual Kitchen is free on starter recipes. '
-            'Redeem a Premium code to unlock it for every recipe.',
+    if (!_isPremium) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.lock_outline),
+          title: const Text('Premium feature'),
+          content: const Text(
+            'You can browse recipes for free. The interactive virtual '
+            'assistant, including guided steps, images, timers, and '
+            'narration, is available with Premium.',
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Keep browsing'),
+            ),
+            FilledButton(
+              key: const ValueKey('premium-redeem-from-lock'),
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                unawaited(_redeemCode());
+              },
+              child: const Text('Redeem code'),
+            ),
+          ],
         ),
       );
       return;
@@ -810,6 +836,8 @@ class _VirtualKitchenCookingScreenState
                   icon: _step.icon,
                   color: widget.recipe.color,
                   number: _index + 1,
+                  title: _step.title,
+                  imageUrl: _step.imageUrl,
                 ),
                 const SizedBox(height: 22),
                 Text(
@@ -1062,7 +1090,7 @@ class _FilterDropdown<T> extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox(
     width: 168,
     child: DropdownButtonFormField<T>(
-      value: value,
+      initialValue: value,
       isExpanded: true,
       decoration: InputDecoration(
         labelText: label,
@@ -1148,7 +1176,7 @@ class _RecipeTile extends StatelessWidget {
                 width: 48,
                 height: 48,
                 decoration: BoxDecoration(
-                  color: recipe.color.withOpacity(0.15),
+                  color: recipe.color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Icon(recipe.icon, color: recipe.color, size: 26),
@@ -1174,7 +1202,7 @@ class _RecipeTile extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: recipe.color.withOpacity(0.12),
+                            color: recipe.color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Text(
@@ -1222,43 +1250,141 @@ class _StepVisual extends StatelessWidget {
     required this.icon,
     required this.color,
     required this.number,
+    required this.title,
+    this.imageUrl,
   });
   final IconData icon;
   final Color color;
   final int number;
+  final String title;
+  final String? imageUrl;
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: 190,
-    decoration: BoxDecoration(
-      color: color.withOpacity(0.12),
+  Widget build(BuildContext context) => Tooltip(
+    message: 'Enlarge step image',
+    child: InkWell(
       borderRadius: BorderRadius.circular(12),
+      onTap: () => _showExpandedImage(context),
+      child: Semantics(
+        button: true,
+        label: 'Step $number: $title. Tap to enlarge image.',
+        child: _artwork(height: 190),
+      ),
     ),
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        Positioned(
-          right: 18,
-          top: 10,
-          child: Text(
-            number.toString().padLeft(2, '0'),
-            style: TextStyle(
-              color: color.withOpacity(0.22),
-              fontSize: 64,
-              fontWeight: FontWeight.w900,
+  );
+
+  Widget _artwork({required double height}) => SizedBox(
+    height: height,
+    width: double.infinity,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (imageUrl != null)
+            Image.network(
+              imageUrl!,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => _fallbackArtwork(),
+            )
+          else
+            _fallbackArtwork(),
+          Positioned(
+            right: 18,
+            top: 10,
+            child: Text(
+              number.toString().padLeft(2, '0'),
+              style: TextStyle(
+                color: color.withValues(alpha: 0.35),
+                fontSize: 64,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
-        ),
-        Container(
-          width: 112,
-          height: 112,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.85),
-            shape: BoxShape.circle,
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Color(0xCC000000)],
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 28, 16, 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.zoom_in, color: Colors.white),
+                  ],
+                ),
+              ),
+            ),
           ),
-          child: Icon(icon, size: 58, color: color),
+        ],
+      ),
+    ),
+  );
+
+  Widget _fallbackArtwork() => ColoredBox(
+    color: color.withValues(alpha: 0.12),
+    child: Center(
+      child: Container(
+        width: 112,
+        height: 112,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.9),
+          shape: BoxShape.circle,
         ),
-      ],
+        child: Icon(icon, size: 58, color: color),
+      ),
+    ),
+  );
+
+  Future<void> _showExpandedImage(BuildContext context) => showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close step image',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 4,
+              child: _artwork(height: 360),
+            ),
+          ],
+        ),
+      ),
     ),
   );
 }

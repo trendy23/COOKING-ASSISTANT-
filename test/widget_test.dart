@@ -68,4 +68,43 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('shows and enlarges the illustration for the current step', (
+    tester,
+  ) async {
+    const recipe = KitchenRecipe(
+      id: 'illustrated-recipe',
+      name: 'Illustrated Soup',
+      culture: 'Test',
+      minutes: 10,
+      isStarter: true,
+      color: Colors.green,
+      icon: Icons.soup_kitchen,
+      steps: [
+        KitchenStep('Prepare', 'Chop the vegetables.', Icons.content_cut),
+        KitchenStep('Cook', 'Simmer the vegetables.', Icons.soup_kitchen),
+      ],
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(home: VirtualKitchenCookingScreen(recipe: recipe)),
+    );
+
+    expect(find.byTooltip('Enlarge step image'), findsOneWidget);
+    expect(find.byIcon(Icons.content_cut), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Enlarge step image'));
+    await tester.pumpAndSettle();
+    expect(find.byType(InteractiveViewer), findsOneWidget);
+    expect(find.byTooltip('Close step image'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close step image'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('next-step')));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.soup_kitchen), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
 }

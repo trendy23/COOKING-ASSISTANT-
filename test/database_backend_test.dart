@@ -19,14 +19,17 @@ void main() {
       expect(score, 1.0);
     });
 
-    test('returns a partial score for partially compatible ingredient lists', () {
-      final score = DatabaseHelper.calculateCompatibilityScore(
-        {'tomato', 'garlic', 'onion', 'pepper'},
-        {'tomato', 'garlic', 'basil'},
-      );
+    test(
+      'returns a partial score for partially compatible ingredient lists',
+      () {
+        final score = DatabaseHelper.calculateCompatibilityScore(
+          {'tomato', 'garlic', 'onion', 'pepper'},
+          {'tomato', 'garlic', 'basil'},
+        );
 
-      expect(score, closeTo(0.5, 0.0001));
-    });
+        expect(score, closeTo(0.5, 0.0001));
+      },
+    );
 
     test('returns zero when no ingredients overlap', () {
       final score = DatabaseHelper.calculateCompatibilityScore(
@@ -37,37 +40,40 @@ void main() {
       expect(score, 0.0);
     });
 
-    test('ranks recipes by compatibility while honoring dietary restrictions', () {
-      final recipes = [
-        {
-          'name': 'Tomato Soup',
-          'dietaryTags': 'vegan',
-          'ingredientSet': {'tomato', 'garlic', 'onion'},
-        },
-        {
-          'name': 'Chicken Curry',
-          'dietaryTags': 'non-vegetarian',
-          'ingredientSet': {'tomato', 'chicken', 'coconut'},
-        },
-        {
-          'name': 'Lentil Bowl',
-          'dietaryTags': 'vegan',
-          'ingredientSet': {'lentils', 'rice', 'tomato'},
-        },
-      ];
+    test(
+      'ranks recipes by compatibility while honoring dietary restrictions',
+      () {
+        final recipes = [
+          {
+            'name': 'Tomato Soup',
+            'dietaryTags': 'vegan',
+            'ingredientSet': {'tomato', 'garlic', 'onion'},
+          },
+          {
+            'name': 'Chicken Curry',
+            'dietaryTags': 'non-vegetarian',
+            'ingredientSet': {'tomato', 'chicken', 'coconut'},
+          },
+          {
+            'name': 'Lentil Bowl',
+            'dietaryTags': 'vegan',
+            'ingredientSet': {'lentils', 'rice', 'tomato'},
+          },
+        ];
 
-      final ranked = DatabaseHelper.getRankedRecommendations(
-        recipes,
-        {'tomato', 'garlic', 'onion'},
-        'vegan',
-      );
+        final ranked = DatabaseHelper.getRankedRecommendations(recipes, {
+          'tomato',
+          'garlic',
+          'onion',
+        }, 'vegan');
 
-      expect(ranked.map((recipe) => recipe['name']).toList(), [
-        'Tomato Soup',
-        'Lentil Bowl',
-      ]);
-      expect(ranked.first['score'], 1.0);
-    });
+        expect(ranked.map((recipe) => recipe['name']).toList(), [
+          'Tomato Soup',
+          'Lentil Bowl',
+        ]);
+        expect(ranked.first['score'], 100.0);
+      },
+    );
   });
 
   group('Seven recipe daily limit', () {
@@ -92,27 +98,31 @@ void main() {
 
       final ordered = DatabaseHelper.orderRecipeSteps(steps);
 
-      expect(
-        ordered.map((step) => step['instructionText']).toList(),
-        [
-          'Prep the ingredients',
-          'Cook the mixture',
-          'Finish and serve',
-        ],
-      );
+      expect(ordered.map((step) => step['instructionText']).toList(), [
+        'Prep the ingredients',
+        'Cook the mixture',
+        'Finish and serve',
+      ]);
     });
   });
 
   group('Offline readiness', () {
-    test('allows offline support when cached recipes and steps are available', () {
-      final supported = DatabaseHelper.supportsOfflineMode(
-        hasInternetConnection: false,
-        cachedRecipes: [{'id': 'r1'}],
-        cachedSteps: [{'recipe_id': 'r1', 'stepOrder': 1}],
-      );
+    test(
+      'allows offline support when cached recipes and steps are available',
+      () {
+        final supported = DatabaseHelper.supportsOfflineMode(
+          hasInternetConnection: false,
+          cachedRecipes: [
+            {'id': 'r1'},
+          ],
+          cachedSteps: [
+            {'recipe_id': 'r1', 'stepOrder': 1},
+          ],
+        );
 
-      expect(supported, isTrue);
-    });
+        expect(supported, isTrue);
+      },
+    );
 
     test('blocks offline access when data cache is empty', () {
       final supported = DatabaseHelper.supportsOfflineMode(
@@ -195,47 +205,58 @@ void main() {
       }
     });
 
-    test('tracks free daily usage, resets by date, and unlocks premium', () async {
-      final db = await openDatabase(
-        inMemoryDatabasePath,
-        version: 1,
-        onCreate: (database, version) => DatabaseHelper.createSchema(database),
-      );
-      try {
-        for (var index = 1; index <= 9; index++) {
-          await db.insert('Recipe', {
-            'id': 'daily-$index',
-            'name': 'Daily recipe $index',
-            'dietaryTags': '',
-            'cultureTag': 'Test',
-            'energyLevel': 'low',
-          });
-        }
-        await db.insert('Redeem_Code', {'code': 'TEST-PREMIUM'});
-
-        final access = LocalAccessManager(database: db, profileId: 'test-user');
-        final today = DateTime(2026, 10, 3, 12);
-        for (var index = 1; index <= 7; index++) {
-          expect(await access.consumeRecipe('daily-$index', now: today), isTrue);
-        }
-        expect(await access.consumeRecipe('daily-8', now: today), isFalse);
-        expect(await access.consumeRecipe('daily-1', now: today), isTrue);
-        expect((await access.load(now: today)).recipesUsedToday, 7);
-
-        expect(
-          await access.consumeRecipe(
-            'daily-8',
-            now: today.add(const Duration(days: 1)),
-          ),
-          isTrue,
+    test(
+      'tracks free daily usage, resets by date, and unlocks premium',
+      () async {
+        final db = await openDatabase(
+          inMemoryDatabasePath,
+          version: 1,
+          onCreate: (database, version) =>
+              DatabaseHelper.createSchema(database),
         );
-        expect(await access.redeemCode('invalid-code'), isFalse);
-        expect(await access.redeemCode(' test-premium '), isTrue);
-        expect((await access.load(now: today)).isPremium, isTrue);
-        expect(await access.consumeRecipe('daily-9', now: today), isTrue);
-      } finally {
-        await db.close();
-      }
-    });
+        try {
+          for (var index = 1; index <= 9; index++) {
+            await db.insert('Recipe', {
+              'id': 'daily-$index',
+              'name': 'Daily recipe $index',
+              'dietaryTags': '',
+              'cultureTag': 'Test',
+              'energyLevel': 'low',
+            });
+          }
+          await db.insert('Redeem_Code', {'code': 'TEST-PREMIUM'});
+
+          final access = LocalAccessManager(
+            database: db,
+            profileId: 'test-user',
+          );
+          final today = DateTime(2026, 10, 3, 12);
+          expect((await access.load(now: today)).isPremium, isFalse);
+          for (var index = 1; index <= 7; index++) {
+            expect(
+              await access.consumeRecipe('daily-$index', now: today),
+              isTrue,
+            );
+          }
+          expect(await access.consumeRecipe('daily-8', now: today), isFalse);
+          expect(await access.consumeRecipe('daily-1', now: today), isTrue);
+          expect((await access.load(now: today)).recipesUsedToday, 7);
+
+          expect(
+            await access.consumeRecipe(
+              'daily-8',
+              now: today.add(const Duration(days: 1)),
+            ),
+            isTrue,
+          );
+          expect(await access.redeemCode('invalid-code'), isFalse);
+          expect(await access.redeemCode(' test-premium '), isTrue);
+          expect((await access.load(now: today)).isPremium, isTrue);
+          expect(await access.consumeRecipe('daily-9', now: today), isTrue);
+        } finally {
+          await db.close();
+        }
+      },
+    );
   });
 }
